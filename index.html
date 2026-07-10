@@ -104,7 +104,8 @@
     const player = { x: 370, y: 520, w: 64, h: 64 };
     const bullet = { x: 0, y: 0, w: 32, h: 32, state: "ready" };
     const enemy = { x: 0, y: 0, w: 32, h: 32 };
-    const boss = { x: 0, y: 100, w: 128, h: 128, active: false, health: 50, hpMultiplier: 2, direction: 1 };
+    // Boss initialized with random coordinates even while inactive (replicates Python bug)
+    const boss = { x: Math.random() * 800, y: Math.random() * 600, w: 128, h: 128, active: false, health: 50, hpMultiplier: 2, direction: 1 };
     
     // Background Stars (exactly 100)
     const stars = [];
@@ -113,8 +114,18 @@
     }
 
     // Input Handling
+    let bgMusicStarted = false;
+    function initAudio() {
+      if (!bgMusicStarted) {
+        startBackgroundMusic();
+        bgMusicStarted = true;
+      }
+    }
+
+    window.addEventListener('click', initAudio);
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Enter' && (gameState === 'START' || gameState === 'GAMEOVER')) {
+      initAudio();
+      if (e.code === 'Enter' && gameState === 'START') {
         startGame();
       }
       if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
@@ -141,7 +152,6 @@
       boss.active = false;
       boss.hpMultiplier = 2; // Original code starts with 2
       spawnEnemy();
-      startBackgroundMusic();
     }
 
     function saveHighScore() {
@@ -188,7 +198,7 @@
       }
 
       // 4. Boss Collision
-      if (boss.active && isCollision(boss.x, boss.y, bullet.x, bullet.y) && bullet.state === 'fire') {
+      if (isCollision(boss.x, boss.y, bullet.x, bullet.y) && bullet.state === 'fire') {
         bullet.state = 'ready';
         bullet.y = player.y;
         boss.health -= 10;
@@ -244,12 +254,12 @@
 
       // 10. Game Over Condition
       if (enemy.y >= player.y) {
-        let isNewHigh = saveHighScore();
-        if (isNewHigh && score !== 0) {
+        localStorage.setItem('highscore', highScore);
+        if (score === highScore && score !== 0) {
           gameState = "WIN";
           winTimer = performance.now();
         } else {
-          gameState = "START";
+          gameState = "GAMEOVER";
         }
       }
     }
@@ -267,7 +277,7 @@
         ctx.fill();
       }
 
-      if (gameState === "START" || gameState === "GAMEOVER") {
+      if (gameState === "START") {
         ctx.fillStyle = "white";
         ctx.font = "64px sans-serif";
         ctx.fillText("Press ENTER to Start", 150, 250);
@@ -281,7 +291,7 @@
         
         // Wait 3000ms like the python code: pygame.time.wait(3000)
         if (performance.now() - winTimer > 3000) { 
-          gameState = "START";
+          gameState = "GAMEOVER";
         }
         return;
       }
