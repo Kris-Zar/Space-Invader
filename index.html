@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Space Invaders Web Demo</title>
+  <link rel="icon" type="image/png" href="ufo.png">
   <style>
     body {
       margin: 0;
@@ -39,55 +40,38 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    // Audio Context for synthetic sound effects (replacing .mp3 files)
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let bgOscillator = null;
-    let bgGain = null;
+    // Original Assets
+    const playerImg = new Image();
+    playerImg.src = 'spaceship.png'; // Pygame scaled to 64x64
+    
+    const bulletImg = new Image();
+    bulletImg.src = 'bullet.png'; // Pygame scaled to 32x32
+    
+    const enemyImg = new Image();
+    enemyImg.src = 'enemy.png'; // Pygame scaled to 32x32
+    
+    const bossImg = new Image();
+    bossImg.src = 'boss.png'; // Pygame scaled to 128x128
+    
+    const bgAudio = new Audio('background.mp3');
+    bgAudio.loop = true;
+    
+    const explosionAudio = new Audio('explosion.mp3');
+    const winAudio = new Audio('winning.mp3');
 
     function startBackgroundMusic() {
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      if (!bgOscillator) {
-        bgOscillator = audioCtx.createOscillator();
-        bgGain = audioCtx.createGain();
-        bgOscillator.type = 'triangle';
-        bgOscillator.frequency.setValueAtTime(55, audioCtx.currentTime); // Low droning hum for space
-        bgGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-        bgOscillator.connect(bgGain);
-        bgGain.connect(audioCtx.destination);
-        bgOscillator.start();
+      if (bgAudio.paused) {
+        bgAudio.play().catch(() => {});
       }
     }
 
     function playSound(type) {
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-      const osc = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      
-      osc.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      
       if (type === 'explosion') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(100, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.3);
-        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
+        explosionAudio.currentTime = 0;
+        explosionAudio.play().catch(() => {});
       } else if (type === 'win') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
-        osc.frequency.setValueAtTime(554.37, audioCtx.currentTime + 0.15);
-        osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.3);
-        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.45);
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.0);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 1.0);
+        winAudio.currentTime = 0;
+        winAudio.play().catch(() => {});
       }
     }
 
@@ -152,15 +136,6 @@
       boss.active = false;
       boss.hpMultiplier = 2; // Original code starts with 2
       spawnEnemy();
-    }
-
-    function saveHighScore() {
-      if (score > highScore) {
-        highScore = score;
-        localStorage.setItem('highscore', highScore);
-        return true; // New high score
-      }
-      return false;
     }
 
     // Collision math from source: math.hypot(enemyX - bulletX, enemyY - bulletY) < 40
@@ -296,34 +271,34 @@
         return;
       }
 
-      // Draw Boss (Placeholder for boss.png)
+      // Draw Boss
       if (boss.active) {
-        ctx.fillStyle = "#aa0000"; // Dark red
-        ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
-        ctx.fillStyle = "white";
-        ctx.font = "24px sans-serif";
-        ctx.fillText("BOSS", boss.x + 32, boss.y + 70);
+        try {
+          ctx.drawImage(bossImg, boss.x, boss.y, boss.w, boss.h);
+        } catch (e) {}
       }
 
-      // Draw Enemy (Placeholder for enemy.png)
-      ctx.fillStyle = "#ff5555"; // Light red
-      ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+      // Draw Enemy
+      try {
+        ctx.drawImage(enemyImg, enemy.x, enemy.y, enemy.w, enemy.h);
+      } catch (e) {}
 
-      // Draw Player (Placeholder for spaceship.png)
-      ctx.fillStyle = "#55ff55"; // Green
-      ctx.fillRect(player.x, player.y, player.w, player.h);
+      // Draw Player
+      try {
+        ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+      } catch (e) {}
 
-      // Draw Bullet (Placeholder for bullet.png)
+      // Draw Bullet
       if (bullet.state === "fire") {
-        ctx.fillStyle = "yellow";
-        // Source draws bullet at x+16 offset to center it relative to player
-        ctx.fillRect(bullet.x + 16, bullet.y, bullet.w, bullet.h);
+        try {
+          // Source draws bullet at x+16 offset to center it relative to player
+          ctx.drawImage(bulletImg, bullet.x + 16, bullet.y, bullet.w, bullet.h);
+        } catch (e) {}
       }
 
       // Draw UI
       ctx.fillStyle = "white";
       ctx.font = "32px sans-serif";
-      // Source text: Score: {score}  High Score: {high_score}
       ctx.fillText(`Score: ${score}  High Score: ${highScore}`, 10, 30);
     }
 
