@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Space Invaders Web Demo</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: white;
+      font-family: sans-serif;
+    }
+    canvas {
+      background: #000;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <script>
+    // Game constants extracted from source
+    const CONSTANTS = {
+      playerSpeed: 1,
+      bulletSpeed: 3,
+      enemyYSpeed: 0.5,
+      bossSpeed: 2,
+      collisionDistance: 40,
+      enemyScore: 10,
+      bossScore: 50,
+      bossSpawnInterval: 500
+    };
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Audio Context for synthetic sound effects (replacing .mp3 files)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let bgOscillator = null;
+    let bgGain = null;
+
+    function startBackgroundMusic() {
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      if (!bgOscillator) {
+        bgOscillator = audioCtx.createOscillator();
+        bgGain = audioCtx.createGain();
+        bgOscillator.type = 'triangle';
+        bgOscillator.frequency.setValueAtTime(55, audioCtx.currentTime); // Low droning hum for space
+        bgGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        bgOscillator.connect(bgGain);
+        bgGain.connect(audioCtx.destination);
+        bgOscillator.start();
+      }
+    }
+
+    function playSound(type) {
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      if (type === 'explosion') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.3);
+        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+      } else if (type === 'win') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(554.37, audioCtx.currentTime + 0.15);
+        osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.3);
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.45);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1.0);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 1.0);
+      }
+    }
+
+    // Game State
+    let gameState = "START"; // START, PLAYING, WIN (win screen is just a delay then game over), GAMEOVER
+    let winTimer = 0;
+    let score = 0;
+    let highScore = parseInt(localStorage.getItem('highscore')) || 0;
+    
+    // Key state
+    const keys = { ArrowLeft: false, ArrowRight: false, Space: false };
+
+    // Entities (with identical coordinates/sizes to source)
+    const player = { x: 370, y: 520, w: 64, h: 64 };
+    const bullet = { x: 0, y: 0, w: 32, h: 32, state: "ready" };
+    const enemy = { x: 0, y: 0, w: 32, h: 32 };
+    const boss = { x: 0, y: 100, w: 128, h: 128, active: false, health: 50, hpMultiplier: 2, direction: 1 };
+    
+    // Background Stars (exactly 100)
+    const stars = [];
+    for (let i = 0; i < 100; i++) {
+      stars.push({ x: Math.random() * 800, y: Math.random() * 600 });
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Enter' && (gameState === 'START' || gameState === 'GAMEOVER')) {
+        startGame();
+      }
+      if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
+      if (e.code === 'ArrowRight') keys.ArrowRight = true;
+      if (e.code === 'Space') keys.Space = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'ArrowLeft') keys.ArrowLeft = false;
+      if (e.code === 'ArrowRight') keys.ArrowRight = false;
+      if (e.code === 'Space') keys.Space = false;
+    });
+
+    function spawnEnemy() {
+      enemy.x = Math.random() * 768; 
+      enemy.y = Math.random() * 150;
+    }
+
+    function startGame() {
+      gameState = "PLAYING";
+      score = 0;
+      player.x = 370;
+      bullet.state = "ready";
+      boss.active = false;
+      boss.hpMultiplier = 2; // Original code starts with 2
+      spawnEnemy();
+      startBackgroundMusic();
+    }
+
+    function saveHighScore() {
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('highscore', highScore);
+        return true; // New high score
+      }
+      return false;
+    }
+
+    // Collision math from source: math.hypot(enemyX - bulletX, enemyY - bulletY) < 40
+    function isCollision(x1, y1, x2, y2) {
+      const distance = Math.hypot(x1 - x2, y1 - y2);
+      return distance < CONSTANTS.collisionDistance;
+    }
+
+    function update() {
+      // 1. Stars drift
+      for (let star of stars) {
+        star.y += 1;
+        if (star.y > 600) {
+          star.x = Math.random() * 800;
+          star.y = 0;
+        }
+      }
+
+      if (gameState !== "PLAYING") return;
+
+      // 2. Boss Spawn (spawns when score is multiple of 500)
+      if (score % CONSTANTS.bossSpawnInterval === 0 && score !== 0 && !boss.active) {
+        boss.active = true;
+        boss.health = 50 * boss.hpMultiplier;
+        boss.x = Math.random() * 672;
+        boss.y = 100;
+      }
+
+      // 3. Boss Movement
+      if (boss.active) {
+        boss.x += boss.direction * CONSTANTS.bossSpeed;
+        if (boss.x <= 0 || boss.x >= 672) {
+          boss.direction *= -1;
+        }
+      }
+
+      // 4. Boss Collision
+      if (boss.active && isCollision(boss.x, boss.y, bullet.x, bullet.y) && bullet.state === 'fire') {
+        bullet.state = 'ready';
+        bullet.y = player.y;
+        boss.health -= 10;
+        if (boss.health <= 0) {
+          score += CONSTANTS.bossScore;
+          playSound('explosion');
+          boss.active = false;
+          boss.hpMultiplier *= 2; // Doubles for next spawn
+          playSound('win');
+        }
+      }
+
+      // 5. Player Movement
+      if (keys.ArrowLeft) player.x -= CONSTANTS.playerSpeed;
+      if (keys.ArrowRight) player.x += CONSTANTS.playerSpeed;
+
+      // Keep player within bounds
+      if (player.x < 0) player.x = 0;
+      else if (player.x > 736) player.x = 736;
+
+      // 6. Fire Bullet
+      if (keys.Space && bullet.state === "ready") {
+        bullet.x = player.x;
+        bullet.y = player.y;
+        bullet.state = "fire";
+      }
+
+      // 7. Bullet Movement
+      if (bullet.state === "fire") {
+        bullet.y -= CONSTANTS.bulletSpeed;
+        if (bullet.y <= 0) {
+          bullet.state = "ready";
+        }
+      }
+
+      // 8. Enemy Collision
+      if (isCollision(enemy.x, enemy.y, bullet.x, bullet.y) && bullet.state === 'fire') {
+        bullet.state = 'ready';
+        bullet.y = player.y;
+        score += CONSTANTS.enemyScore;
+        if (score > highScore) {
+          highScore = score;
+        }
+        spawnEnemy();
+        playSound('explosion');
+      }
+
+      // 9. Enemy Vertical Movement
+      enemy.y += CONSTANTS.enemyYSpeed;
+      if (enemy.y > 600) {
+        spawnEnemy();
+      }
+
+      // 10. Game Over Condition
+      if (enemy.y >= player.y) {
+        let isNewHigh = saveHighScore();
+        if (isNewHigh && score !== 0) {
+          gameState = "WIN";
+          winTimer = performance.now();
+        } else {
+          gameState = "START";
+        }
+      }
+    }
+
+    function draw() {
+      // Clear screen
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw stars
+      ctx.fillStyle = "white";
+      for (let star of stars) {
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (gameState === "START" || gameState === "GAMEOVER") {
+        ctx.fillStyle = "white";
+        ctx.font = "64px sans-serif";
+        ctx.fillText("Press ENTER to Start", 150, 250);
+        return;
+      }
+      
+      if (gameState === "WIN") {
+        ctx.fillStyle = "yellow";
+        ctx.font = "64px sans-serif";
+        ctx.fillText("New High Score!", 200, 250);
+        
+        // Wait 3000ms like the python code: pygame.time.wait(3000)
+        if (performance.now() - winTimer > 3000) { 
+          gameState = "START";
+        }
+        return;
+      }
+
+      // Draw Boss (Placeholder for boss.png)
+      if (boss.active) {
+        ctx.fillStyle = "#aa0000"; // Dark red
+        ctx.fillRect(boss.x, boss.y, boss.w, boss.h);
+        ctx.fillStyle = "white";
+        ctx.font = "24px sans-serif";
+        ctx.fillText("BOSS", boss.x + 32, boss.y + 70);
+      }
+
+      // Draw Enemy (Placeholder for enemy.png)
+      ctx.fillStyle = "#ff5555"; // Light red
+      ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h);
+
+      // Draw Player (Placeholder for spaceship.png)
+      ctx.fillStyle = "#55ff55"; // Green
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      // Draw Bullet (Placeholder for bullet.png)
+      if (bullet.state === "fire") {
+        ctx.fillStyle = "yellow";
+        // Source draws bullet at x+16 offset to center it relative to player
+        ctx.fillRect(bullet.x + 16, bullet.y, bullet.w, bullet.h);
+      }
+
+      // Draw UI
+      ctx.fillStyle = "white";
+      ctx.font = "32px sans-serif";
+      // Source text: Score: {score}  High Score: {high_score}
+      ctx.fillText(`Score: ${score}  High Score: ${highScore}`, 10, 30);
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Start rendering loop
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
