@@ -9,25 +9,25 @@
       margin: 0;
       padding: 0;
       background: #111;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
+      overflow: hidden; /* Prevent scrolling when full screen */
       color: white;
       font-family: sans-serif;
     }
     canvas {
+      display: block; /* Remove inline spacing */
       background: #000;
-      box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
     }
   </style>
 </head>
 <body>
-  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <canvas id="gameCanvas"></canvas>
   <script>
-    // Game constants extracted from source
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Game constants
     const CONSTANTS = {
-      playerSpeed: 1,
+      playerSpeed: 4, // Increased speed for better responsiveness
       bulletSpeed: 3,
       enemyYSpeed: 0.5,
       bossSpeed: 2,
@@ -36,22 +36,19 @@
       bossScore: 50,
       bossSpawnInterval: 500
     };
-
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
     
     // Original Assets
     const playerImg = new Image();
-    playerImg.src = 'spaceship.png'; // Pygame scaled to 64x64
+    playerImg.src = 'spaceship.png'; 
     
     const bulletImg = new Image();
-    bulletImg.src = 'bullet.png'; // Pygame scaled to 32x32
+    bulletImg.src = 'bullet.png'; 
     
     const enemyImg = new Image();
-    enemyImg.src = 'enemy.png'; // Pygame scaled to 32x32
+    enemyImg.src = 'enemy.png'; 
     
     const bossImg = new Image();
-    bossImg.src = 'boss.png'; // Pygame scaled to 128x128
+    bossImg.src = 'boss.png'; 
     
     const bgAudio = new Audio('background.mp3');
     bgAudio.loop = true;
@@ -76,7 +73,7 @@
     }
 
     // Game State
-    let gameState = "START"; // START, PLAYING, WIN (win screen is just a delay then game over), GAMEOVER
+    let gameState = "START"; 
     let winTimer = 0;
     let score = 0;
     let highScore = parseInt(localStorage.getItem('highscore')) || 0;
@@ -84,18 +81,36 @@
     // Key state
     const keys = { ArrowLeft: false, ArrowRight: false, Space: false };
 
-    // Entities (with identical coordinates/sizes to source)
-    const player = { x: 370, y: 520, w: 64, h: 64 };
+    // Entities
+    const player = { x: 0, y: 0, w: 64, h: 64 };
     const bullet = { x: 0, y: 0, w: 32, h: 32, state: "ready" };
     const enemy = { x: 0, y: 0, w: 32, h: 32 };
-    // Boss initialized with random coordinates even while inactive (replicates Python bug)
-    const boss = { x: Math.random() * 800, y: Math.random() * 600, w: 128, h: 128, active: false, health: 50, hpMultiplier: 2, direction: 1 };
+    const boss = { x: 0, y: 0, w: 128, h: 128, active: false, health: 50, hpMultiplier: 2, direction: 1 };
     
-    // Background Stars (exactly 100)
     const stars = [];
-    for (let i = 0; i < 100; i++) {
-      stars.push({ x: Math.random() * 800, y: Math.random() * 600 });
+    
+    // Responsive Canvas
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      
+      // Update positions based on new height
+      player.y = canvas.height - 80;
+      
+      // Re-initialize stars for new dimensions if needed
+      if (stars.length === 0) {
+        for (let i = 0; i < 100; i++) {
+          stars.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height });
+        }
+      }
     }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas(); // Set initial size
+    
+    // Initial random placement within dynamic bounds
+    player.x = (canvas.width / 2) - (player.w / 2);
+    boss.x = Math.random() * canvas.width;
+    boss.y = Math.random() * canvas.height;
 
     // Input Handling
     let bgMusicStarted = false;
@@ -124,21 +139,20 @@
     });
 
     function spawnEnemy() {
-      enemy.x = Math.random() * 768; 
-      enemy.y = Math.random() * 150;
+      enemy.x = Math.random() * (canvas.width - enemy.w); 
+      enemy.y = Math.random() * (canvas.height * 0.25); // Spawn in top 25%
     }
 
     function startGame() {
       gameState = "PLAYING";
       score = 0;
-      player.x = 370;
+      player.x = (canvas.width / 2) - (player.w / 2);
       bullet.state = "ready";
       boss.active = false;
-      boss.hpMultiplier = 2; // Original code starts with 2
+      boss.hpMultiplier = 2;
       spawnEnemy();
     }
 
-    // Collision math from source: math.hypot(enemyX - bulletX, enemyY - bulletY) < 40
     function isCollision(x1, y1, x2, y2) {
       const distance = Math.hypot(x1 - x2, y1 - y2);
       return distance < CONSTANTS.collisionDistance;
@@ -148,26 +162,26 @@
       // 1. Stars drift
       for (let star of stars) {
         star.y += 1;
-        if (star.y > 600) {
-          star.x = Math.random() * 800;
+        if (star.y > canvas.height) {
+          star.x = Math.random() * canvas.width;
           star.y = 0;
         }
       }
 
       if (gameState !== "PLAYING") return;
 
-      // 2. Boss Spawn (spawns when score is multiple of 500)
+      // 2. Boss Spawn
       if (score % CONSTANTS.bossSpawnInterval === 0 && score !== 0 && !boss.active) {
         boss.active = true;
         boss.health = 50 * boss.hpMultiplier;
-        boss.x = Math.random() * 672;
+        boss.x = Math.random() * (canvas.width - boss.w);
         boss.y = 100;
       }
 
       // 3. Boss Movement
       if (boss.active) {
         boss.x += boss.direction * CONSTANTS.bossSpeed;
-        if (boss.x <= 0 || boss.x >= 672) {
+        if (boss.x <= 0 || boss.x >= (canvas.width - boss.w)) {
           boss.direction *= -1;
         }
       }
@@ -181,7 +195,7 @@
           score += CONSTANTS.bossScore;
           playSound('explosion');
           boss.active = false;
-          boss.hpMultiplier *= 2; // Doubles for next spawn
+          boss.hpMultiplier *= 2; 
           playSound('win');
         }
       }
@@ -190,9 +204,9 @@
       if (keys.ArrowLeft) player.x -= CONSTANTS.playerSpeed;
       if (keys.ArrowRight) player.x += CONSTANTS.playerSpeed;
 
-      // Keep player within bounds
+      // Keep player within dynamic bounds
       if (player.x < 0) player.x = 0;
-      else if (player.x > 736) player.x = 736;
+      else if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
 
       // 6. Fire Bullet
       if (keys.Space && bullet.state === "ready") {
@@ -223,7 +237,7 @@
 
       // 9. Enemy Vertical Movement
       enemy.y += CONSTANTS.enemyYSpeed;
-      if (enemy.y > 600) {
+      if (enemy.y > canvas.height) {
         spawnEnemy();
       }
 
@@ -255,16 +269,19 @@
       if (gameState === "START") {
         ctx.fillStyle = "white";
         ctx.font = "64px sans-serif";
-        ctx.fillText("Press ENTER to Start", 150, 250);
+        ctx.textAlign = "center";
+        ctx.fillText("Press ENTER to Start", canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = "left"; // reset for UI
         return;
       }
       
       if (gameState === "WIN") {
         ctx.fillStyle = "yellow";
         ctx.font = "64px sans-serif";
-        ctx.fillText("New High Score!", 200, 250);
+        ctx.textAlign = "center";
+        ctx.fillText("New High Score!", canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = "left";
         
-        // Wait 3000ms like the python code: pygame.time.wait(3000)
         if (performance.now() - winTimer > 3000) { 
           gameState = "GAMEOVER";
         }
@@ -273,27 +290,18 @@
 
       // Draw Boss
       if (boss.active) {
-        try {
-          ctx.drawImage(bossImg, boss.x, boss.y, boss.w, boss.h);
-        } catch (e) {}
+        try { ctx.drawImage(bossImg, boss.x, boss.y, boss.w, boss.h); } catch (e) {}
       }
 
       // Draw Enemy
-      try {
-        ctx.drawImage(enemyImg, enemy.x, enemy.y, enemy.w, enemy.h);
-      } catch (e) {}
+      try { ctx.drawImage(enemyImg, enemy.x, enemy.y, enemy.w, enemy.h); } catch (e) {}
 
       // Draw Player
-      try {
-        ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
-      } catch (e) {}
+      try { ctx.drawImage(playerImg, player.x, player.y, player.w, player.h); } catch (e) {}
 
       // Draw Bullet
       if (bullet.state === "fire") {
-        try {
-          // Source draws bullet at x+16 offset to center it relative to player
-          ctx.drawImage(bulletImg, bullet.x + 16, bullet.y, bullet.w, bullet.h);
-        } catch (e) {}
+        try { ctx.drawImage(bulletImg, bullet.x + 16, bullet.y, bullet.w, bullet.h); } catch (e) {}
       }
 
       // Draw UI
